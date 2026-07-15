@@ -1,0 +1,19 @@
+name: Deploy to Firebase Hosting
+on:
+  push:
+    branches:
+      - main # Change this to master if your default branch is called master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Deploy to Firebase
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only hosting
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
