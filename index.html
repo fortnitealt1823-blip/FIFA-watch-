@@ -126,8 +126,33 @@
             margin-top: 20px;
         }
 
+        /* Slot Machine Structure Container */
         .number-slot {
             background: #000000;
+            width: 80px;
+            height: 80px;
+            border-radius: 14px;
+            box-shadow: inset 0 4px 12px rgba(0,0,0,0.9), 0 4px 10px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.05);
+            overflow: hidden;
+            position: relative;
+            display: inline-block;
+        }
+
+        /* The moving strip containing 00-99 */
+        .slot-strip {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            transition: transform 2.5s cubic-bezier(0.1, 0.8, 0.1, 1);
+            transform: translateY(0);
+        }
+
+        /* Individual number frame inside the strip */
+        .slot-number {
             color: var(--gold);
             font-family: monospace, sans-serif;
             font-size: 48px;
@@ -135,17 +160,13 @@
             width: 80px;
             height: 80px;
             line-height: 80px;
-            border-radius: 14px;
-            box-shadow: inset 0 2px 10px rgba(0,0,0,0.8), 0 4px 10px rgba(0,0,0,0.3);
-            border: 1px solid rgba(255,255,255,0.05);
-            overflow: hidden;
-            display: inline-block;
+            text-align: center;
+            box-sizing: border-box;
         }
 
-        .settled {
-            animation: lockIn 0.3s ease-out;
+        .settled .slot-number {
             color: #ffffff;
-            border-color: rgba(255,255,255,0.2);
+            animation: lockIn 0.3s ease-out;
         }
 
         @keyframes lockIn {
@@ -172,7 +193,7 @@
 
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getFirestore, collection, getDocs, addDoc, doc, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { getFirestore, collection, getDocs, doc, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
     const firebaseConfig = {
         apiKey: "AIzaSyDutMXqnO9eJb8Dz0x1sSEvtiScc4PyAIk",
@@ -186,15 +207,28 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // Place your Discord Webhook URL inside the quotation marks below
     const discordWebhookUrl = "https://discord.com/api/webhooks/1526746402527383745/2NzyQ4i6afw7fZpbZl9UFg3sloRP8sGqdfUAyT3NeG7QQvfuiHw8cehkXcp8Bakc4_J7";
 
     const submitBtn = document.getElementById('submitBtn');
     const userNameInput = document.getElementById('userName');
     const resultDiv = document.getElementById('result');
 
+    // Generate standard HTML template layout for the slot lists (00 to 99)
+    function generateSlotHTML(id) {
+        let numbersHTML = '';
+        for (let i = 0; i < 100; i++) {
+            numbersHTML += `<div class="slot-number">${i.toString().padStart(2, '0')}</div>`;
+        }
+        return `
+            <div class="number-slot" id="${id}">
+                <div class="slot-strip" id="${id}-strip">
+                    ${numbersHTML}
+                </div>
+            </div>`;
+    }
+
     submitBtn.addEventListener('click', async () => {
-        const name = userNameInput.value.trim();
+        const name = userNameInput.value.replace(/[|`*]/g, '').trim();
 
         if (!name) {
             alert('Please enter a player name.');
@@ -203,84 +237,119 @@
 
         submitBtn.disabled = true;
         
+        // Render the visual slot containers instantly
         resultDiv.innerHTML = `
-            Checking roster space...
+            Drafting your squad numbers...
             <div class="badge-container">
-                <div class="number-slot" id="slot1">00</div>
-                <div class="number-slot" id="slot2">00</div>
+                ${generateSlotHTML('slot1')}
+                ${generateSlotHTML('slot2')}
             </div>`;
 
-        const slot1 = document.getElementById('slot1');
-        const slot2 = document.getElementById('slot2');
+        const strip1 = document.getElementById('slot1-strip');
+        const strip2 = document.getElementById('slot2-strip');
 
-        const rollInterval = setInterval(() => {
-            slot1.innerText = Math.floor(Math.random() * 100).toString().padStart(2, '0');
-            slot2.innerText = Math.floor(Math.random() * 100).toString().padStart(2, '0');
-        }, 70);
+        // Spin instantly to create a rolling illusion while querying database
+        setTimeout(() => {
+            if (strip1 && strip2) {
+                strip1.style.transition = 'transform 0.5s linear';
+                strip2.style.transition = 'transform 0.5s linear';
+                strip1.style.transform = `translateY(-7200px)`; // Fast initial spin loop
+                strip2.style.transform = `translateY(-6400px)`;
+            }
+        }, 20);
 
         try {
-            const finalNumbers = await runTransaction(db, async (transaction) => {
-                const snapshot = await getDocs(collection(db, "userSelections"));
-                const takenNumbers = new Set();
-                let nameExists = false;
-                
-                snapshot.forEach((doc) => {
-                    const data = doc.data();
-                    
-                    if (data.name && data.name.toLowerCase() === name.toLowerCase()) {
-                        nameExists = true;
-                    }
-                    
-                    if (data.numbers && Array.isArray(data.numbers)) {
-                        data.numbers.forEach(num => takenNumbers.add(num));
-                    }
-                });
-
-                if (nameExists) {
-                    throw new Error("NAME_TAKEN");
+            const snapshot = await getDocs(collection(db, "userSelections"));
+            const takenNumbers = new Set();
+            let nameExists = false;
+            
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                if (data.name && data.name.toLowerCase() === name.toLowerCase()) {
+                    nameExists = true;
                 }
-
-                let availableNumbers = [];
-                for (let i = 0; i < 100; i++) {
-                    const formatted = i.toString().padStart(2, '0');
-                    if (!takenNumbers.has(formatted)) {
-                        availableNumbers.push(formatted);
-                    }
+                if (data.numbers && Array.isArray(data.numbers)) {
+                    data.numbers.forEach(num => takenNumbers.add(num.toString().padStart(2, '0')));
                 }
+            });
 
-                if (availableNumbers.length < 2) {
-                    throw new Error("NOT_ENOUGH_NUMBERS");
+            if (nameExists) {
+                throw new Error("NAME_TAKEN");
+            }
+
+            let availableNumbers = [];
+            for (let i = 0; i < 100; i++) {
+                const formatted = i.toString().padStart(2, '0');
+                if (!takenNumbers.has(formatted)) {
+                    availableNumbers.push(formatted);
                 }
+            }
 
-                availableNumbers.sort(() => Math.random() - 0.5);
-                const selected = [availableNumbers[0], availableNumbers[1]];
+            if (availableNumbers.length < 2) {
+                throw new Error("NOT_ENOUGH_NUMBERS");
+            }
 
+            // Fisher-Yates shuffle
+            for (let i = availableNumbers.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [availableNumbers[i], availableNumbers[j]] = [availableNumbers[j], availableNumbers[i]];
+            }
+            const selected = [availableNumbers[0], availableNumbers[1]];
+
+            await runTransaction(db, async (transaction) => {
                 const selectionDocRef = doc(collection(db, "userSelections"));
                 transaction.set(selectionDocRef, {
                     name: name,
                     numbers: selected,
                     timestamp: serverTimestamp()
                 });
-
-                return selected;
             });
 
-            // If a webhook URL is configured, generate a single combined list of all entries
-            if (discordWebhookUrl !== "YOUR_DISCORD_WEBHOOK_URL") {
-                // Fetch updated collection list directly to include the fresh entry
-                const updatedSnapshot = await getDocs(collection(db, "userSelections"));
-                let combinedRows = "";
+            // Calculate precise vertical offset positions for the picked numbers
+            const val1 = parseInt(selected[0], 10);
+            const val2 = parseInt(selected[1], 10);
+            
+            const offset1 = -(val1 * 80);
+            const offset2 = -(val2 * 80);
 
-                updatedSnapshot.forEach((doc) => {
-                    const data = doc.data();
-                    if (data.name && data.numbers) {
-                        const paddedName = data.name.padEnd(20, ' ');
-                        const numbersDisplay = `${data.numbers[0]} & ${data.numbers[1]}`;
-                        combinedRows += `| ${paddedName} | ${numbersDisplay.padEnd(9, ' ')} |\n`;
-                    }
-                });
+            if (strip1 && strip2) {
+                // Apply easing equations to simulate natural casino gears clicking to a halt
+                strip1.style.transition = 'transform 2.5s cubic-bezier(0.1, 0.8, 0.1, 1)';
+                strip2.style.transition = 'transform 3.0s cubic-bezier(0.1, 0.8, 0.1, 1)';
+                
+                strip1.style.transform = `translateY(${offset1}px)`;
+                strip2.style.transform = `translateY(${offset2}px)`;
+            }
 
-                const combinedMessage = 
+            // Wait for visual animations to conclude gracefully before displaying message updates
+            setTimeout(() => {
+                document.getElementById('slot1')?.classList.add('settled');
+                document.getElementById('slot2')?.classList.add('settled');
+                
+                const welcomeMsg = document.createElement('div');
+                welcomeMsg.style.marginTop = '20px';
+                welcomeMsg.innerHTML = `Welcome to the roster, <strong>${name}</strong>! Your numbers are officially locked.`;
+                resultDiv.appendChild(welcomeMsg);
+                
+                userNameInput.value = '';
+            }, 3100);
+
+            // Decoupled Discord Webhook Routine
+            if (discordWebhookUrl && discordWebhookUrl.startsWith("https://discord.com")) {
+                try {
+                    const updatedSnapshot = await getDocs(collection(db, "userSelections"));
+                    let combinedRows = "";
+
+                    updatedSnapshot.forEach((doc) => {
+                        const data = doc.data();
+                        if (data.name && data.numbers) {
+                            const paddedName = data.name.substring(0, 20).padEnd(20, ' ');
+                            const numbersDisplay = `${data.numbers[0]} & ${data.numbers[1]}`;
+                            combinedRows += `| ${paddedName} | ${numbersDisplay.padEnd(9, ' ')} |\n`;
+                        }
+                    });
+
+                    const combinedMessage = 
 `⚽ **Current Squad Roster Update**
 \`\`\`
 +----------------------+-----------+
@@ -289,33 +358,32 @@
 ${combinedRows}+----------------------+-----------+
 \`\`\``;
 
-                await fetch(discordWebhookUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ content: combinedMessage })
-                });
+                    await fetch(discordWebhookUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ content: combinedMessage })
+                    });
+                } catch (webhookError) {
+                    console.error("Discord integration update skipped or rate-limited:", webhookError);
+                }
             }
 
-            clearInterval(rollInterval);
-            
-            resultDiv.innerHTML = `
-                Welcome to the roster, <strong>${name}</strong>!<br>Your assigned numbers are:
-                <div class="badge-container">
-                    <div class="number-slot settled">${finalNumbers[0]}</div>
-                    <div class="number-slot settled">${finalNumbers[1]}</div>
-                </div>`;
-                
-            userNameInput.value = '';
-
         } catch (error) {
-            clearInterval(rollInterval);
-            console.error(error);
+            // Reset transforms if system database issues arise
+            if (strip1 && strip2) {
+                strip1.style.transition = 'none';
+                strip2.style.transition = 'none';
+                strip1.style.transform = 'translateY(0)';
+                strip2.style.transform = 'translateY(0)';
+            }
+            
+            console.error("Draft error details:", error);
             if (error.message === "NAME_TAKEN") {
-                resultDiv.innerHTML = `<span style='color: #ffa502;'>  "${name}" has already drawn numbers. You cannot enter twice. If you bought 2 tickets then put your name with a 2 next to it:)</span>`;
+                resultDiv.innerHTML = `<span style='color: #ffa502;'> "${name}" has already drawn numbers. You cannot enter twice. If you bought 2 tickets then put your name with a 2 next to it:)</span>`;
             } else if (error.message === "NOT_ENOUGH_NUMBERS") {
                 resultDiv.innerHTML = "<span style='color: #ffa502;'>Draft closed. All squad numbers are claimed.</span>";
             } else {
-                resultDiv.innerText = "Error completing draft selection. Please try again.";
+                resultDiv.innerText = "Error completing draft selection due to network connectivity. Please try again.";
             }
         } finally {
             submitBtn.disabled = false;
