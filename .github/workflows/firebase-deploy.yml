@@ -12,9 +12,17 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Create Temporary Firebase Config
+      - name: Automatically Find index.html and Create Config
         run: |
-          echo '{"hosting": {"public": ".", "ignore": ["firebase.json", "**/.*", "**/node_modules/**"]}}' > firebase.json
+          # This command searches for index.html and finds its folder name
+          TARGET_DIR=$(dirname $(find . -name "index.html" | head -n 1) | sed 's|^\./||' | sed 's|^\.$||')
+          
+          # If it's in the root folder, use ".", otherwise use the folder path found
+          if [ -z "$TARGET_DIR" ]; then TARGET_DIR="."; fi
+          echo "Found index.html in directory: $TARGET_DIR"
+          
+          # Build the firebase.json dynamically
+          echo "{\"hosting\": {\"public\": \"$TARGET_DIR\", \"ignore\": [\"firebase.json\", \"**/.*\", \"**/node_modules/**\"]}}" > firebase.json
 
       - name: Deploy to Firebase
         uses: w9jds/firebase-action@master
