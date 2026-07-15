@@ -12,6 +12,10 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Create Temporary Firebase Config
+        run: |
+          echo '{"hosting": {"public": ".", "ignore": ["firebase.json", "**/.*", "**/node_modules/**"]}}' > firebase.json
+
       - name: Deploy to Firebase
         uses: w9jds/firebase-action@master
         with:
